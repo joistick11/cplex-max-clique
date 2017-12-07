@@ -1,6 +1,6 @@
 package com.vorontsov.cplex.bnb;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +9,7 @@ public class Graph {
     private Map<Integer, Node> nodes;
 
     Graph() {
-        this.nodes = new HashMap<>();
+        this.nodes = new LinkedHashMap<>();
     }
 
     public Map<Integer, Node> getNodes() {
