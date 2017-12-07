@@ -1,24 +1,15 @@
 package com.vorontsov.cplex.bnb;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-import ilog.concert.IloException;
-import ilog.concert.IloLinearNumExpr;
-import ilog.concert.IloNumExpr;
-import ilog.concert.IloNumVar;
+import ilog.concert.*;
 import ilog.cplex.IloCplex;
 
 public class BnBCplex {
     private IloCplex cplex;
     private Graph graph;
     private List<Graph.Node> maxClique;
-    private Map<Graph.Node, IloNumVar> vars;
+    private Map<Integer, IloNumVar> vars;
 
     BnBCplex(Graph graph) throws IloException {
         this.graph = graph;
@@ -30,6 +21,8 @@ public class BnBCplex {
     }
 
     private void initialize() throws IloException {
+        cplex.setOut(null);
+
         // Variables
         initializeVars();
 
@@ -44,7 +37,8 @@ public class BnBCplex {
 
     private void addIndependentSetsConstraints() {
         Map<Integer, Set<Graph.Node>> independentSets = getIndependentSets(new LinkedList<>(graph.getNodes().values()));
-        independentSets.forEach((key, set) -> {
+        independentSets.values().stream().filter(s -> s.size() > 1)
+                .forEach((set) -> {
             try {
                 IloNumExpr iloNumExpr = cplex.numExpr();
                 for (Graph.Node node : set) {
@@ -60,7 +54,7 @@ public class BnBCplex {
 
     private void addPrimitiveConstraints() throws IloException {
         for (Graph.Node node : graph.getNodes().values()) {
-            for (int anotherNodeIndex = node.getIndex(); anotherNodeIndex < graph.getNodes().size(); anotherNodeIndex++) {
+            for (int anotherNodeIndex = node.getIndex() + 1; anotherNodeIndex <= graph.getNodes().size(); anotherNodeIndex++) {
                 if (!node.getNeighbours().contains(graph.getNodes().get(anotherNodeIndex))) {
                     cplex.addLe(cplex.sum(vars.get(node.getIndex()), vars.get(anotherNodeIndex)), 1);
                 }
@@ -83,15 +77,53 @@ public class BnBCplex {
     private void initializeVars() {
         graph.getNodes().forEach((index, node) -> {
             try {
-                vars.put(node, cplex.numVar(0, 1, String.valueOf(node.getIndex())));
+                vars.put(node.getIndex(), cplex.numVar(0, 1, String.valueOf(node.getIndex()) + "n"));
             } catch (IloException e) {
                 e.printStackTrace();
             }
         });
     }
 
-    public List<Graph.Node> findMaxClique() {
-        return null;
+    public List<Graph.Node> findMaxClique() throws IloException {
+        findCliqueInternal();
+
+        return maxClique;
+    }
+
+    private void findCliqueInternal() throws IloException {
+        if (cplex.solve()) {
+            if (maxClique.size() > Math.floor(cplex.getObjValue())) {
+                return;
+            }
+
+            double[] varsValues = cplex.getValues(vars.values().toArray(new IloNumVar[vars.size()]));
+            int firstFractalIndex = -1;
+            List<Graph.Node> possibleMaxClique = new LinkedList<>();
+            for (int d = 0; d < varsValues.length; d++) {
+                if (varsValues[d] % 1 != 0.0) {
+                    firstFractalIndex = d;
+                    break;
+                }
+
+                if (varsValues[d] == 1.0) {
+                    possibleMaxClique.add(graph.getNodes().get(d + 1));
+                }
+            }
+
+            if (firstFractalIndex == -1) {
+                if (maxClique.size() < possibleMaxClique.size()) {
+                    maxClique = possibleMaxClique;
+                }
+            } else {
+                IloRange newBranchConstraint = cplex.addGe(vars.get(firstFractalIndex + 1), 1);
+                findCliqueInternal();
+                cplex.remove(newBranchConstraint);
+
+                newBranchConstraint = cplex.addLe(vars.get(firstFractalIndex + 1), 0);
+                findCliqueInternal();
+                cplex.remove(newBranchConstraint);
+            }
+        }
     }
 
     private static Map<Integer, Set<Graph.Node>> getIndependentSets(List<Graph.Node> nodes) {
