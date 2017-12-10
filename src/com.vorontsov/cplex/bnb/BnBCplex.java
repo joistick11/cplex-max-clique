@@ -31,7 +31,8 @@ public class BnBCplex {
 
         // add obvious constraints on nodes which are not connected
         addPrimitiveConstraints();
-        
+
+        // add constraints based on independent sets
         addIndependentSetsConstraints();
     }
 
@@ -92,6 +93,7 @@ public class BnBCplex {
 
     private void findCliqueInternal() throws IloException {
         if (cplex.solve()) {
+            // this branch won't give us better result than existing one
             if (maxClique.size() > Math.floor(cplex.getObjValue())) {
                 return;
             }
@@ -100,21 +102,26 @@ public class BnBCplex {
             int firstFractalIndex = -1;
             List<Graph.Node> possibleMaxClique = new LinkedList<>();
             for (int d = 0; d < varsValues.length; d++) {
+                // if fractional var is found - doing branching basing on it
                 if (varsValues[d] % 1 != 0.0) {
                     firstFractalIndex = d;
                     break;
                 }
 
+                // until we found fractal value of some var - it is potentially a clique
                 if (varsValues[d] == 1.0) {
                     possibleMaxClique.add(graph.getNodes().get(d + 1));
                 }
             }
 
+            // it is an integer solution
+            // if possible max clique is bigger then previous one - we found new max clique
             if (firstFractalIndex == -1) {
                 if (maxClique.size() < possibleMaxClique.size()) {
                     maxClique = possibleMaxClique;
                 }
             } else {
+                // otherwise doing branching
                 IloRange newBranchConstraint = cplex.addGe(vars.get(firstFractalIndex + 1), 1);
                 findCliqueInternal();
                 cplex.remove(newBranchConstraint);
@@ -127,9 +134,6 @@ public class BnBCplex {
     }
 
     private static Map<Integer, Set<Graph.Node>> getIndependentSets(List<Graph.Node> nodes) {
-        // It is better for us to have small color for nodes with a little number of neighbours
-        // In this case using |Q|+|R| > |Qmax| we will reject nodes with big number of neighbours
-        nodes.sort(Comparator.<Graph.Node>comparingInt(elem -> elem.getNeighbours().size()).reversed());
         int maxColor = 0;
         // contains sets with vertexes of the same color. Key - color number, value - set of nodes of this color
         Map<Integer, Set<Graph.Node>> colorsSets = new HashMap<>();
@@ -164,5 +168,9 @@ public class BnBCplex {
         }
 
         return colorsSets;
+    }
+
+    public List<Graph.Node> getMaxClique() {
+        return maxClique;
     }
 }
